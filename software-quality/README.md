@@ -21,13 +21,13 @@ By extension, this framework can be leveraged to include the preemptive checking
 
 The software quality application *cppcheck* was used to generate a representative set of defect results within a CI test job. The illustrated workflow is shown below.
 
-![CISQ1](images/CISQ1.png)
+![CISQ1](../images/CISQ1.png)
 
 In studies it was found to be more beneficial to provide shorter feedback indicating a state change. Defects are either *introduced*, *removed* or remain *unresolved* against a reference result generated from the main development branch.
 
 The summary report was constructed in a markdown syntax which could be parsed in a consistent format by *Gitlab*. An example report is shown below. Some care was taken in applying defect prioritisation and in truncating the report to a maximum length where necessary. Any defects introduced by the proposed code modification were given more prominence to motivate action to be taken and to halt further increases to the overall number of defects.
 
-![CISQ2](images/CISQ1.png)
+![CISQ2](../images/CISQ1.png)
 
 The scripts `CI-code-review/cppcheck-run.py` and `CI-code-review/cppcheck-report.py` run the defect checking service and generate the report for Gitlab respectively.
 
