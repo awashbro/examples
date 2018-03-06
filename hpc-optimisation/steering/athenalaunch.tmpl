@@ -1,0 +1,146 @@
+#!/bin/bash
+#PBS -N JOBNAME
+#PBS -A d60
+#PBS -l walltime=WALLTIME
+#PBS -l select=NODES
+#PBS -m abe
+#PBS -M EMAIL
+
+# athenalaunch.tmpl
+# Template HPC bash submission script
+# Note: this will not run in isolation. Entries are filled in by running gensub.sh
+
+# set job size (also need to change PBS options -l select and -l walltime to match resource usage)
+nodes=NODES
+cores=CORES
+nevents=EVENTS
+
+# set working directories
+BASEDIR="TESTDIR"
+OUTPUTDIRBASE="OUTPUTDIR"
+
+# set job environment files
+WORKINGDIR="$BASEDIR/output/$PBS_JOBID"
+LOGFILE="$WORKINGDIR/heartbeat.log"
+LOCKLIST="$WORKINGDIR/locklist"
+JOBLIST="$BASEDIR/tasktracker/tasklist-${nevents}"
+THISJOBLIST="$WORKINGDIR/tasklist"
+
+# Parrot env
+export PARROT_CVMFS_REPO="<default-repositories>"
+export PARROT_ALLOW_SWITCHING_CVMFS_REPOSITORIES=yes
+export HTTP_PROXY="INVALID-PROXY"
+export PARROT_CVMFS_ALIEN_CACHE=/work/d60/d60/shared/cvmfs/cache
+export PARROT_DIR="PARROT_DIR"
+
+# Switch working directory
+mkdir $WORKINGDIR
+export $PBS_O_WORKDIR="$WORKINGDIR"
+cd $PBS_O_WORKDIR
+
+# Make working directories
+mkdir $WORKINGDIR/lock
+mkdir $WORKINGDIR/log
+mkdir $WORKINGDIR/run
+
+# switch python modules for compute node execution
+module list
+module swap anaconda python-compute
+
+# ORCHESTRATE JOBS
+
+# get batch of files to process
+grep ACTIVATED $JOBLIST | head -${nodes} > $THISJOBLIST
+
+# check available jobs
+NJOBS=$(wc -l $THISJOBLIST | awk '{print $1}')
+if [ "$NJOBS" -lt "$nodes" ]; then
+	echo "LESS THAN $nodes AVAILABLE ($NJOBS) - EXITING" >> $LOGFILE
+	exit
+fi
+
+# ATHENA FRAMEWORK SETUP
+
+# get external dependencies
+export LD_LIBRARY_PATH=DEPS:$LD_LIBRARY_PATH
+
+# run through list of activated jobs 
+cat $THISJOBLIST | while read jobline
+do
+
+	# get parameters from line
+	jobarray=($jobline)
+	WRmass=${jobarray[0]}
+	NRmass=${jobarray[1]}
+	filename=${jobarray[2]}
+	fileid=$(echo $filename | perl -ne 'print "$1\n" if /EVNT\.(.*)\.pool/')
+	firstevent=${jobarray[3]}
+	lastevent=${jobarray[4]}
+	maxevents=$((lastevent - firstevent + 1))
+	OUTPUTDIR="$OUTPUTDIRBASE/WR${WRmass}NR${NRmass}/SIM"
+
+	# launch parallel job
+	aprun -cc none -n 1 -N 1 "$PARROT_DIR/parrot_run" "$BASEDIR/athenalaunch.sh" "$WORKINGDIR" "$WRmass" "$NRmass" "$fileid" "$maxevents" "$firstevent" "$cores" >> $WORKINGDIR/log/WR${WRmass}-NR${NRmass}-${filename}-evt${firstevent}-to-evt${lastevent}.log &
+
+	# create lock and store
+	touch $WORKINGDIR/lock/WR${WRmass}-NR${NRmass}-${filename}-evt${firstevent}-to-evt${lastevent}.lock
+	echo $WORKINGDIR/lock/WR${WRmass}-NR${NRmass}-${filename}-evt${firstevent}-to-evt${lastevent}.lock >> $LOCKLIST
+
+	# change state of job to running
+	sed -i -e "/$WRmass\s$NRmass\s$filename\s$firstevent\s$lastevent\s/ s/ACTIVATED/RUNNING/g" $JOBLIST
+
+	# log state change
+	echo $(date "+%d-%m-%y %H:%M:%S") RUNNING WR $WRmass NR $NRmass $filename - evt $firstevent to evt $lastevent >> $LOGFILE
+
+done
+
+# loop until all jobs completed
+elapsed=0
+while true
+do
+
+	nrunning=0
+	for lockfile in $(cat $LOCKLIST)
+	do
+
+		if [ -e "$lockfile" ]; then
+		 	nrunning=$(( $nrunning + 1 ))
+
+		else
+
+			# retreive job information
+			jobinfo=$(echo $lockfile | perl -ne 'print "$1 $2 $3 $4 $5" if /WR(.*?)-NR(.*?)-(.*?)-evt(.*?)-to-evt(.*?)\.lock/')
+			jobarray=($jobinfo)
+			WRmass=${jobarray[0]}
+        		NRmass=${jobarray[1]}
+        		filename=${jobarray[2]}
+        		firstevent=${jobarray[3]}
+        		lastevent=${jobarray[4]}
+
+			# change state of job to complete
+			jobstring=$(echo -n $WRmass $NRmass $filename $firstevent $lastevent)
+			sed -i -e "/$jobstring/ s/RUNNING/COMPLETE/g" $JOBLIST
+
+			# remove lockfile from list in file
+			sed -i -e "\:$lockfile:d" $LOCKLIST
+
+			# log state change
+			echo $(date "+%d-%m-%y %H:%M:%S") COMPLETE WR $WRmass NR $NRmass $filename - evt $firstevent to evt $lastevent >> $LOGFILE
+
+		fi
+
+	done
+
+	if [ "$nrunning" -ne "0" ]; then
+   		echo $(date "+%d-%m-%y %H:%M:%S") [$elapsed mins] $nrunning jobs running >> $LOGFILE
+	else
+		echo $(date "+%d-%m-%y %H:%M:%S") [$elapsed mins] ALL jobs complete - exiting  >> $LOGFILE
+		exit
+	fi
+
+	sleep 60
+	elapsed=$(( $elapsed + 1 ))
+
+done
+
+exit
