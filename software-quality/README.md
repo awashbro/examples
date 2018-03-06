@@ -27,7 +27,7 @@ In studies it was found to be more beneficial to provide shorter feedback indica
 
 The summary report was constructed in a markdown syntax which could be parsed in a consistent format by *Gitlab*. An example report is shown below. Some care was taken in applying defect prioritisation and in truncating the report to a maximum length where necessary. Any defects introduced by the proposed code modification were given more prominence to motivate action to be taken and to halt further increases to the overall number of defects.
 
-![CISQ2](../images/CISQ1.png)
+![CISQ2](../images/CISQ2.png)
 
 The scripts `CI-code-review/cppcheck-run.py` and `CI-code-review/cppcheck-report.py` run the defect checking service and generate the report for Gitlab respectively.
 
